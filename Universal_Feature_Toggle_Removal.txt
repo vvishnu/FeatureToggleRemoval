@@ -1,0 +1,1087 @@
+# 🔧 Universal Feature Toggle Removal Guide
+*Safe, comprehensive removal for ANY feature toggle in FiscaalGemak codebase*
+
+---
+
+## 🎯 Purpose
+
+**This single guide handles removal of ANY feature toggle from `FiscaalGemakFeatures` enum.**
+
+Replace `{FEATURE_NAME}` with the actual feature toggle you want to remove (e.g., `ShowSheetPreview`, `MediumClassificationIsAvailable`, etc.)
+
+---
+
+## ⚠️ Strict Responsibility
+
+**This guide's ONLY purpose is to REMOVE code and perform cleanup. Never add new logic, features, or conditions. Never comment out code—DELETE it entirely. Never leave comments in the codebase as a result of this process. ONLY DELETE.**
+
+---
+
+## 🔍 Implementation Patterns in FiscaalGemak
+
+**Feature toggles in FiscaalGemak are implemented in TWO main ways:**
+
+### Implementation Pattern A: Service-Based (Backend - C#)
+**Used in:** Backend services, repositories, controllers
+
+```csharp
+// Injected service
+private readonly IPilotFeatureService _pilotFeatureService;
+
+// Check toggle
+if (_pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.FeatureName))
+{
+    // Feature code
+}
+```
+
+**What to search for:**
+- `pilotFeatureService.IsFeatureEnabled`
+- `_pilotFeatureService.IsFeatureEnabled`
+- `IPilotFeatureService` interface
+
+---
+
+### Implementation Pattern B: Direct Dictionary Access (Frontend - TypeScript/Angular)
+**Used in:** Angular components, services, AngularJS controllers
+
+```typescript
+// Stored in session storage
+fiscaalGemakFeatures: SessionStorageData = {};
+
+// Loaded in constructor
+constructor(private sessionStorageService: FgSessionStorageService) {
+    this.fiscaalGemakFeatures = this.sessionStorageService.getFeaturesStorageData();
+    
+    // Direct access to check toggle
+    this.isFeatureEnabled = 
+        this.fiscaalGemakFeatures[FiscaalGemakFeatures[FiscaalGemakFeatures.FeatureName]];
+}
+
+// Alternative direct access patterns:
+if (this.fiscaalGemakFeatures[FiscaalGemakFeatures.FeatureName]) { }
+if (fiscaalGemakFeatures['FeatureName']) { }
+```
+
+**What to search for:**
+- `fiscaalGemakFeatures[FiscaalGemakFeatures[FiscaalGemakFeatures.`
+- `this.fiscaalGemakFeatures[FiscaalGemakFeatures.`
+- Variable assignments like `isFeatureEnabled = this.fiscaalGemakFeatures`
+- Variable declarations like `isFeatureEnabled: boolean;`
+
+---
+
+### Implementation Pattern C: Stored Variable (MOST COMMON in Frontend)
+**Used in:** Angular/AngularJS components, templates
+
+```typescript
+// Step 1: Variable declaration
+isShowSheetPreviewEnabled: boolean;
+{feature}Enabled: boolean;
+{feature}Flag: boolean;
+show{Feature}: boolean;
+
+// Step 2: Assignment from dictionary
+constructor() {
+    this.isShowSheetPreviewEnabled = 
+        this.fiscaalGemakFeatures[FiscaalGemakFeatures[FiscaalGemakFeatures.ShowSheetPreview]];
+}
+
+// Step 3: Usage in templates
+@if (isShowSheetPreviewEnabled && otherCondition) { }
+<div *ngIf="isShowSheetPreviewEnabled">...</div>
+<div ng-if="vm.isShowSheetPreviewEnabled">...</div>
+```
+
+**⚠️ CRITICAL:** This pattern requires THREE removals:
+1. **Variable declaration** → DELETE
+2. **Variable assignment** → DELETE
+3. **All variable usages** → DELETE or adjust conditions
+
+**What to search for:**
+- `is{Feature}Enabled`
+- `{feature}Enabled`
+- `{feature}Flag`
+- `show{Feature}`
+- Variable name in camelCase and variations
+
+---
+
+### Summary: All Patterns to Search For
+
+| Pattern | Location | Search Term | Example |
+|---------|----------|-------------|---------|
+| Service-based | C# Backend | `pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE})` | Service calls |
+| Direct dictionary | TypeScript | `fiscaalGemakFeatures[FiscaalGemakFeatures[FiscaalGemakFeatures.{FEATURE}]]` | Component constructor |
+| Stored variable | TypeScript | `is{Feature}Enabled`, `{feature}Flag` | Variable declarations |
+| Template usage | HTML | `*ngIf="is{Feature}Enabled"`, `@if (is{Feature}Enabled)` | Angular templates |
+| AngularJS usage | HTML/JS | `ng-if="vm.is{Feature}Enabled"` | AngularJS templates |
+| Enum definition | C#/TypeScript | `{FEATURE_NAME} = XXX` | Enum files |
+| Description | C#/TypeScript | `[Description("...")]`, `fiscaalGemakFeaturesDescriptions[...]` | Enum metadata |
+
+**🎯 Bottom Line:** This guide covers ALL of these patterns. Just follow the pattern recognition section!
+
+---
+
+## 🚀 Quick Start
+
+### Before You Begin
+- [ ] **Feature is stable** and tested in production
+- [ ] **Stakeholder approval** obtained
+- [ ] **Working in feature branch** (not main!)
+- [ ] **Team notified** of upcoming removal
+
+### Search Patterns
+
+**Backend (C#) - Service-Based:**
+```csharp
+pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME})
+_pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME})
+```
+
+**Backend (C#) - Direct Access:**
+```csharp
+features[FiscaalGemakFeatures.{FEATURE_NAME}]
+fiscaalGemakFeatures.{FEATURE_NAME}
+```
+
+**Frontend (TypeScript/Angular) - Direct Dictionary Access:**
+```typescript
+fiscaalGemakFeatures[FiscaalGemakFeatures[FiscaalGemakFeatures.{FEATURE_NAME}]]
+fiscaalGemakFeatures[FiscaalGemakFeatures.{FEATURE_NAME}]
+this.fiscaalGemakFeatures[FiscaalGemakFeatures[FiscaalGemakFeatures.{FEATURE_NAME}]]
+```
+
+**Frontend (TypeScript/Angular) - Stored Variables:**
+```typescript
+is{FeatureName}Enabled
+{featureName}Enabled
+{featureName}Flag
+show{FeatureName}
+```
+
+**Frontend (TypeScript/Angular) - Session Storage:**
+```typescript
+sessionStorageService.getFeaturesStorageData()[FiscaalGemakFeatures.{FEATURE_NAME}]
+```
+
+**AngularJS - Direct Access:**
+```javascript
+FiscaalGemakFeatures.{FEATURE_NAME}
+```
+
+**Enum Definition:**
+```typescript
+{FEATURE_NAME} = XXX,
+[Description("{FEATURE_NAME}")]
+```
+
+---
+
+## 📋 What to Remove
+
+### ✅ ALWAYS Remove:
+- [ ] **Enum value** from `FiscaalGemakFeatures` (C# and TypeScript files)
+- [ ] **Description attribute** `[Description("...")]` in C# enum
+- [ ] **Description mapping** in `fiscaalGemakFeaturesDescriptions`
+- [ ] **Feature list entry** in `fiscaalGemakFeaturesDescriptionList` (TypeScript)
+- [ ] **All toggle checks** (`pilotFeatureService.IsFeatureEnabled`, `fiscaalGemakFeatures[...]`)
+- [ ] **All variables** storing toggle state (`is{Feature}Enabled`, `{feature}Flag`, etc.)
+- [ ] **All template conditions** using the toggle
+- [ ] **All tests** referencing the toggle (not per-entity config)
+- [ ] **All comments** or commented-out code related to the toggle
+- [ ] **Unused service dependencies** (`IPilotFeatureService` if no longer needed)
+
+### 🛡️ NEVER Remove:
+- [ ] **Per-entity config/property** (e.g., `ShowSheetPreview` on models, JSON, database schema)
+- [ ] **Business logic** conditions combined with the toggle
+- [ ] **Other feature toggles** in complex boolean expressions
+
+---
+
+## 🚨 Risk Assessment
+
+| Risk Level | Pattern | Frequency | Action Required |
+|------------|---------|-----------|-----------------|
+| 🔴 **EXTREME** | Complex Boolean Logic | 60% | **Extract and preserve other conditions** |
+| 🟡 **HIGH** | Negated Conditions (`!toggle`) | 30% | **Delete entire block** |
+| 🟠 **MEDIUM** | Repository/Method Parameters | 40% | **Replace with `true`** |
+| 🟢 **LOW** | Simple If/Ternary | 15% | **Straightforward removal** |
+
+### Quick Risk Check
+- Multiple `&&` or `||` in condition? → 🔴 **EXTREME RISK**
+- Starts with `!pilotFeatureService`? → 🟡 **HIGH RISK**
+- Toggle as method parameter? → 🟠 **MEDIUM RISK**
+- Simple `if (toggle)`? → 🟢 **LOW RISK**
+
+---
+
+## 📖 Pattern Recognition & Removal Guide
+
+### 🟢 Pattern 1: Simple If Block
+**What it looks like:**
+```csharp
+if (pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME}))
+{
+    // New feature code
+    DoSomething();
+}
+```
+
+**How to remove:**
+```csharp
+// Remove the if wrapper, keep the contents
+DoSomething();
+```
+
+---
+
+### 🟢 Pattern 2: If-Else Block
+**What it looks like:**
+```csharp
+if (pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME}))
+{
+    // New feature code (KEEP)
+    DoNewThing();
+}
+else
+{
+    // Old code (DELETE)
+    DoOldThing();
+}
+```
+
+**How to remove:**
+```csharp
+// Keep only the if block, delete else
+DoNewThing();
+```
+
+---
+
+### 🟡 Pattern 3: Negated Condition (DANGER!)
+**What it looks like:**
+```csharp
+if (!pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME}))
+{
+    // This runs when feature is OFF
+    RemoveItem();
+}
+```
+
+**How to remove:**
+```csharp
+// DELETE THE ENTIRE BLOCK (nothing remains)
+// Feature is ON, so this code never runs
+```
+
+**⚠️ Critical:** Negated conditions mean "when feature is disabled". When removing the toggle, DELETE the entire block—don't convert to `if (false)` or keep it!
+
+---
+
+### 🔴 Pattern 4: Complex Boolean Logic (EXTREME DANGER!)
+**What it looks like:**
+```csharp
+if (condition1 && 
+    pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME}) && 
+    condition2)
+{
+    DoSomething();
+}
+```
+
+**How to remove:**
+```csharp
+// Keep other conditions, remove ONLY the toggle
+if (condition1 && condition2)
+{
+    DoSomething();
+}
+```
+
+**Another variant:**
+```csharp
+if (condition1 && 
+    (!pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME}) || 
+     condition2))
+```
+
+**How to remove:**
+```csharp
+// Remove the toggle, keep condition2
+if (condition1 && condition2)
+```
+
+**⚠️ Critical:** 
+- Preserve ALL non-toggle conditions
+- Handle `&&` (AND) vs `||` (OR) logic correctly
+- Watch for parentheses—preserve grouping
+- Test thoroughly!
+
+---
+
+### 🟠 Pattern 5: Method Parameters
+**What it looks like:**
+```csharp
+var data = repository.GetData(
+    id, 
+    pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME}));
+```
+
+**How to remove:**
+```csharp
+// Replace with true (feature is always enabled)
+var data = repository.GetData(id, true);
+```
+
+---
+
+### 🟢 Pattern 6: Ternary Operator
+**What it looks like:**
+```csharp
+var result = pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME}) 
+    ? newValue 
+    : oldValue;
+```
+
+**How to remove:**
+```csharp
+// Use the enabled value (first option)
+var result = newValue;
+```
+
+---
+
+### 🟡 Pattern 7: Variable Assignment (Frontend - Direct Dictionary Access)
+**What it looks like:**
+```typescript
+// Variable declaration
+isShowSheetPreviewEnabled: boolean;
+
+// Assignment in constructor/ngOnInit
+constructor(private sessionStorageService: FgSessionStorageService) {
+    this.fiscaalGemakFeatures = this.sessionStorageService.getFeaturesStorageData();
+    this.isShowSheetPreviewEnabled =
+        this.fiscaalGemakFeatures[FiscaalGemakFeatures[FiscaalGemakFeatures.ShowSheetPreview]];
+}
+
+// Alternative patterns:
+this.is{Feature}Enabled = this.fiscaalGemakFeatures[FiscaalGemakFeatures.{FEATURE_NAME}];
+this.{feature}Flag = features['{FEATURE_NAME}'];
+```
+
+**How to remove:**
+```typescript
+// Step 1: Delete the variable declaration
+// isShowSheetPreviewEnabled: boolean; ← DELETE THIS
+
+// Step 2: Delete the assignment
+constructor(private sessionStorageService: FgSessionStorageService) {
+    this.fiscaalGemakFeatures = this.sessionStorageService.getFeaturesStorageData();
+    // DELETE the assignment line
+}
+
+// Step 3: Remove all usages of the variable in templates and code
+```
+
+**⚠️ Critical:** After removing the variable:
+1. Search for ALL usages of the variable name (e.g., `isShowSheetPreviewEnabled`)
+2. Remove from template conditions (`*ngIf`, `@if`, etc.)
+3. Remove from TypeScript conditions
+4. Don't replace with `true` - just remove the condition or adjust logic
+
+---
+
+### 🟠 Pattern 8: Template Conditions (Angular)
+**What it looks like:**
+```html
+<div *ngIf="is{Feature}Enabled && otherCondition">
+  <!-- content -->
+</div>
+```
+
+**How to remove:**
+```html
+<!-- Remove toggle from condition, keep other conditions -->
+<div *ngIf="otherCondition">
+  <!-- content -->
+</div>
+```
+
+**If ONLY the toggle:**
+```html
+<div *ngIf="is{Feature}Enabled">
+  <!-- content -->
+</div>
+```
+
+**Becomes:**
+```html
+<!-- Remove the *ngIf entirely, keep content -->
+<div>
+  <!-- content -->
+</div>
+```
+
+---
+
+### 🔵 Pattern 9: Method Signature Cleanup (Post-Removal)
+**What it looks like:**
+After removing a feature toggle, you might have methods that still accept a boolean parameter that's always `true`:
+
+```csharp
+// Step 1: After toggle removal, calls look like:
+bool result = myObject.SomeMethod(otherParam, true);  // ← Always passing true
+
+// Step 2: Method signature still has the parameter:
+public bool SomeMethod(int otherParam, bool isFeatureEnabled)
+{
+    return isFeatureEnabled ? EnabledLogic() : DisabledLogic();
+}
+```
+
+**How to remove (complete cleanup):**
+
+```csharp
+// Step 1: Simplify the method signature - remove the boolean parameter
+public bool SomeMethod(int otherParam)  // ← Removed bool parameter
+{
+    // Step 2: Simplify the logic - use only the "enabled" path
+    return EnabledLogic();  // ← Remove ternary, use enabled logic directly
+}
+
+// Step 3: Update all call sites - remove the boolean argument
+bool result = myObject.SomeMethod(otherParam);  // ← No more true parameter
+```
+
+**Real example from ConfigureLetterheadPhase removal:**
+
+**Before:**
+```csharp
+// Method signature
+public static bool ApplyLetterheadForPhase(
+    this StepStateType? stepState, 
+    FinancialStatementStylingTemplate template, 
+    bool isLetterheadFeatureEnabled)
+{
+    return isLetterheadFeatureEnabled 
+        ? HasLetterheadForPhase(stepState, template)
+        : (stepState is not null and not StepStateType.PreDraft and not StepStateType.Draft);
+}
+
+// Call site
+bool result = stepState.ApplyLetterheadForPhase(template, true);
+
+// Test
+bool result = stepState.ApplyLetterheadForPhase(template, isLetterheadFeatureEnabled);
+```
+
+**After:**
+```csharp
+// Method signature - parameter removed, logic simplified
+public static bool ApplyLetterheadForPhase(
+    this StepStateType? stepState, 
+    FinancialStatementStylingTemplate template)
+{
+    return HasLetterheadForPhase(stepState, template);  // Always use enabled path
+}
+
+// Call site - no boolean parameter
+bool result = stepState.ApplyLetterheadForPhase(template);
+
+// Test - parameter and variable removed
+bool result = stepState.ApplyLetterheadForPhase(template);
+```
+
+**⚠️ Critical Steps:**
+1. **Update method signature** - Remove the boolean parameter
+2. **Simplify method logic** - Remove ternary/if-else, keep only the "enabled" path logic
+3. **Update ALL call sites** - Remove the boolean argument from every method call
+4. **Update ALL tests** - Remove boolean parameter from test method calls and delete variable declarations
+5. **Verify compilation** - Ensure no remaining references to the old signature
+
+**⚠️ When to use Pattern 9:**
+- After you've completed Pattern 5 (Method Parameters) and replaced all calls with `true`
+- When you notice methods that always receive `true` as a parameter
+- As a final cleanup step to completely remove all traces of the feature toggle
+- When the boolean parameter's sole purpose was to control feature toggle behavior
+
+**Pro Tip:** After removing Pattern 5 occurrences, search for methods that now always receive `true` and consider removing that parameter entirely for cleaner code.
+
+---
+
+## 🛠️ The 5-Step Removal Process
+
+### Step 1: 🔍 **Find & Inventory**
+
+**Search for ALL occurrences across ALL implementation patterns:**
+
+**Backend C# - Service-Based:**
+```
+pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME})
+_pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.{FEATURE_NAME})
+```
+
+**Backend C# - Direct Access:**
+```
+features[FiscaalGemakFeatures.{FEATURE_NAME}]
+fiscaalGemakFeatures.{FEATURE_NAME}
+```
+
+**Frontend TypeScript - Direct Dictionary Access:**
+```
+fiscaalGemakFeatures[FiscaalGemakFeatures[FiscaalGemakFeatures.{FEATURE_NAME}]]
+fiscaalGemakFeatures[FiscaalGemakFeatures.{FEATURE_NAME}]
+this.fiscaalGemakFeatures[FiscaalGemakFeatures.{FEATURE_NAME}]
+```
+
+**Frontend TypeScript - Stored Variables (VERY COMMON):**
+```
+is{FeatureName}Enabled
+{featureName}Enabled
+{featureName}Flag
+show{FeatureName}
+```
+
+**Frontend TypeScript - Session Storage:**
+```
+sessionStorageService.getFeaturesStorageData()[FiscaalGemakFeatures.{FEATURE_NAME}]
+```
+
+**AngularJS:**
+```
+FiscaalGemakFeatures.{FEATURE_NAME}
+```
+
+**Enum and Descriptions:**
+```
+{FEATURE_NAME} = 
+[Description("...")] 
+fiscaalGemakFeaturesDescriptions[FiscaalGemakFeatures.{FEATURE_NAME}]
+```
+
+**⚠️ Pro Tip:** Use case-insensitive search and search for the feature name in different formats:
+- PascalCase: `ShowSheetPreview`
+- camelCase: `showSheetPreview`
+- With prefix: `isShowSheetPreviewEnabled`, `showSheetPreviewFlag`
+
+**Create inventory table:**
+| File | Line | Pattern Type | Risk | Notes |
+|------|------|--------------|------|-------|
+| Service.cs | 45 | Complex Boolean | 🔴 | Has 3 other conditions |
+| Repository.cs | 12 | Method Param | 🟠 | 2nd parameter |
+| Component.ts | 78 | Variable Assignment | 🟡 | Used in template |
+| Template.html | 120 | Template Condition | 🟠 | Combined with hasData |
+
+---
+
+### Step 2: 🧠 **Analyze Each Occurrence**
+
+For each item in your inventory, determine:
+- **Pattern type** (1-9 above)
+- **Risk level** (🔴/🟡/🟠/🟢/🔵)
+- **Other conditions** to preserve
+- **Dependencies** (variables, parameters, etc.)
+
+**⚠️ Note:** Pattern 9 (Method Signature Cleanup) is a follow-up step after Pattern 5 (Method Parameters).
+After replacing all method parameter calls with `true`, check if the boolean parameter can be removed entirely from the method signature.
+
+---
+
+### Step 3: 📋 **Plan Removal Order**
+
+**Priority order (high-risk first):**
+1. [ ] 🔴 Complex boolean logic (need careful extraction)
+2. [ ] 🟡 Negated conditions (entire block deletion)
+3. [ ] 🟡 Variable assignments (affects templates)
+4. [ ] 🟠 Repository/method parameters
+5. [ ] 🟢 Simple if/ternary operators
+6. [ ] 🧹 Enum and description cleanup
+7. [ ] 🧹 Test cleanup
+8. [ ] 🧹 Service dependency cleanup
+9. [ ] 🔵 Method signature cleanup (Pattern 9 - after Pattern 5 is complete)
+
+**⚠️ Important:** Complete Pattern 9 only AFTER all Pattern 5 (Method Parameters) removals are done and verified.
+
+---
+
+### Step 4: ⚡ **Execute Removals**
+
+**Golden Rules:**
+1. ✅ **One pattern at a time** - don't batch different patterns
+2. ✅ **Test after each change** - ensure compilation and tests pass
+3. ✅ **Preserve business logic** - never remove non-toggle conditions
+4. ✅ **Negated = delete block** - don't convert to false
+5. ✅ **Method params = use true** - simple replacement
+6. ✅ **Delete, don't comment** - no commented-out code allowed
+7. ✅ **No new logic** - only removal
+
+**For each removal:**
+```bash
+1. Make the change
+2. Compile/build
+3. Run related tests
+4. Commit with clear message: "Remove {FEATURE_NAME} from {pattern type}"
+5. Move to next item
+```
+
+---
+
+### Step 5: 🧹 **Cleanup & Validation**
+
+**Remove enum and descriptions:**
+- [ ] C# enum value and `[Description]` attribute
+- [ ] TypeScript enum value
+- [ ] TypeScript description mapping
+- [ ] TypeScript description list entry
+
+**Remove dependencies:**
+- [ ] Unused `IPilotFeatureService` constructor parameters
+- [ ] Unused imports (`using` statements)
+- [ ] Unused variables
+
+**Validate:**
+- [ ] Project compiles without errors
+- [ ] All unit tests pass
+- [ ] No unused dependencies remain
+- [ ] No references to toggle remain (except per-entity config)
+- [ ] Integration tests pass
+- [ ] Manual smoke test if needed
+
+---
+
+## 🎯 Real-World Examples
+
+### Example 1: Complex Boolean with Negation 🔴
+```csharp
+// BEFORE: Multiple conditions with negated toggle
+if (flagValue.HasValue && 
+    flagValue != ProjectDefinitionClassificationReportingFlags.Medium && 
+    (!pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.CashFlowIsAvailableForSmall) || 
+     classificationType != Classification.Small))
+{
+    // Business logic
+}
+
+// STEP 1: Identify what to keep
+// - flagValue.HasValue ✅ Keep
+// - flagValue != Medium ✅ Keep  
+// - !toggle ❌ Remove
+// - classificationType != Small ✅ Keep
+
+// STEP 2: Understand the logic
+// Original: condition1 && condition2 && (!toggle || condition3)
+// When toggle is ENABLED: !toggle = false
+// false || condition3 = condition3
+// Result: condition1 && condition2 && condition3
+
+// AFTER: Clean removal
+if (flagValue.HasValue && 
+    flagValue != ProjectDefinitionClassificationReportingFlags.Medium && 
+    classificationType != Classification.Small)
+{
+    // Business logic
+}
+```
+
+---
+
+### Example 2: Negated Simple Condition 🟡
+```csharp
+// BEFORE: Code that runs when feature is OFF
+if (!pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.MediumClassificationIsAvailable) && 
+    item != null)
+{
+    sheetStyleViewModels.Remove(item);
+}
+
+// AFTER: Feature is ON, so this block never runs - DELETE ENTIRELY
+// (nothing here - completely removed)
+```
+
+---
+
+### Example 3: Repository Parameter 🟠
+```csharp
+// BEFORE: Toggle as parameter
+ConsolidationStateDataModel dataModel = consolidationStateRepository.Get(
+    declarationId, 
+    pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.ExpandingNumberForJoinSplit));
+
+// AFTER: Replace with true
+ConsolidationStateDataModel dataModel = consolidationStateRepository.Get(
+    declarationId, 
+    true);
+```
+
+---
+
+### Example 4: Ternary with Array Operation 🟢
+```csharp
+// BEFORE: Conditional array append
+requiredSheets = pilotFeatureService.IsFeatureEnabled(FiscaalGemakFeatures.MediumClassificationIsAvailable) 
+    ? requiredSheets.Append(SheetType.CashFlow).ToArray() 
+    : requiredSheets;
+
+// AFTER: Always use the enabled branch
+requiredSheets = requiredSheets.Append(SheetType.CashFlow).ToArray();
+```
+
+---
+
+### Example 5: Angular Component + Template (Direct Dictionary Access Pattern) 🟡
+
+**This is THE MOST COMMON pattern in FiscaalGemak frontend!**
+
+**Component (TypeScript):**
+```typescript
+// BEFORE: Variable assignment from fiscaalGemakFeatures dictionary
+export class SheetComponent {
+  fiscaalGemakFeatures: SessionStorageData = {};
+  isShowSheetPreviewEnabled: boolean;  // ← DELETE THIS
+  
+  constructor(private readonly sessionStorageService: FgSessionStorageService) {
+    this.fiscaalGemakFeatures = this.sessionStorageService.getFeaturesStorageData();
+    this.isShowSheetPreviewEnabled =  // ← DELETE THIS ENTIRE ASSIGNMENT
+      this.fiscaalGemakFeatures[FiscaalGemakFeatures[FiscaalGemakFeatures.ShowSheetPreview]];
+  }
+}
+
+// AFTER: Remove variable and assignment completely
+export class SheetComponent {
+  fiscaalGemakFeatures: SessionStorageData = {};  // ← Keep if used for other features
+  // Variable REMOVED
+  
+  constructor(private readonly sessionStorageService: FgSessionStorageService) {
+    this.fiscaalGemakFeatures = this.sessionStorageService.getFeaturesStorageData();
+    // Assignment REMOVED
+  }
+}
+```
+
+**Template (HTML) - Angular New Syntax:**
+```html
+<!-- BEFORE: Toggle in template condition -->
+@if (
+  document.currentSheet.showSheetPreview &&
+  isShowSheetPreviewEnabled &&
+  hasAttachments
+) {
+  <div>Preview content</div>
+}
+
+<!-- AFTER: Remove toggle variable, keep per-entity config -->
+@if (
+  document.currentSheet.showSheetPreview &&
+  hasAttachments
+) {
+  <div>Preview content</div>
+}
+```
+
+**Template (HTML) - AngularJS Old Syntax:**
+```html
+<!-- BEFORE: Toggle in template condition -->
+<div ng-if="vm.isShowSheetPreviewEnabled && vm.document.currentSheet.showSheetPreview">
+  Preview content
+</div>
+
+<!-- AFTER: Remove toggle variable -->
+<div ng-if="vm.document.currentSheet.showSheetPreview">
+  Preview content
+</div>
+```
+
+**⚠️ Key Pattern Recognition:**
+1. Variable declaration: `isShowSheetPreviewEnabled: boolean;`
+2. Dictionary access in assignment: `fiscaalGemakFeatures[FiscaalGemakFeatures[...]]`
+3. Variable usage in templates and code
+4. **All three must be removed!**
+
+---
+
+## ⚠️ Common Mistakes (DON'T DO THIS!)
+
+| ❌ **WRONG** | ✅ **RIGHT** | Why |
+|-------------|-------------|-----|
+| `if (true)` | `if (condition1 && condition2)` | Preserve business logic |
+| Convert `!toggle` to `if (false)` | Delete entire block | Negated means remove when enabled |
+| `/* old code */` comments | Complete deletion | No comments allowed |
+| Keep `IPilotFeatureService` unused | Remove from constructor | Clean up dependencies |
+| Batch all changes | One pattern type at a time | Reduce risk of errors |
+| `// TODO: Remove toggle` | Just remove it | No new comments |
+| Add new `if (true)` checks | Direct execution | No new logic |
+| Remove last `using` without blank line | Ensure only one blank line after using block | Prevents `namespaceFg...` corruption |
+
+---
+
+## 🔧 Using Statement Cleanup: Preserving Namespace Spacing
+
+### ⚠️ The Problem
+When removing the **last `using` statement** in a file (especially `using IPilotFeatureService = ...`), the whitespace/newline between the last using block and the `namespace` declaration can get corrupted:
+
+```csharp
+// ❌ WRONG - No space between using block and namespace
+using IPilotFeatureService = FiscaalGemak.Core.IServices.IPilotFeatureService;
+
+namespace FiscaalGemak.Web.Frontend.Services
+
+// After bad cleanup becomes:
+namespaceFiscaalGemak.Web.Frontend.Services  ← CORRUPTED!
+```
+
+### ✅ The Solution
+When removing a `using` statement that is immediately followed by `namespace`, **preserve only ONE blank line** between them:
+
+```csharp
+// ❌ WRONG - No blank line after removing using
+using OtherService;
+namespace FiscaalGemak.Web.Frontend.Services
+
+// ✅ CORRECT - Always ensure only ONE blank line after using block
+using OtherService;
+
+namespace FiscaalGemak.Web.Frontend.Services
+```
+
+### 📋 Step-by-Step for Using Statement Removal
+
+1. **Locate the using statement to remove:**
+   ```csharp
+   using IPilotFeatureService = FiscaalGemak.Core.IServices.IPilotFeatureService;
+   ```
+
+2. **Check what comes after it:**
+   - If followed by another `using` → Simply delete the line
+   - If followed by blank line(s) then `namespace` → Simply delete the line
+   - **If directly followed by `namespace` with no blank line** → Delete AND ensure only 1 blank line remains
+
+3. **Verify the result:**
+   ```csharp
+   // Should look like:
+   [previous using statements OR start of file]
+   
+   namespace FiscaalGemak.Web.Frontend.Services
+   ```
+
+### 🎯 Why This Happens
+Most code cleanup tools don't intelligently handle the edge case where a `using` statement is the last one before `namespace`. They may accidentally merge the line with the namespace declaration when removing the using statement, losing the critical whitespace.
+
+### ✅ Prevention Checklist
+- [ ] After removing any `using` statement, verify there's a blank line before `namespace`
+- [ ] Don't just delete the line - ensure proper spacing is maintained
+- [ ] Check that both `using` blocks and `namespace` are on separate lines
+- [ ] Test compilation after cleanup to catch spacing issues early
+
+---
+
+## 🔍 Where to Look
+
+**Common file patterns:**
+- **Backend C#:**
+  - `*Service.cs` - Business logic with toggle checks
+  - `*Repository.cs` - Data access with toggle parameters
+  - `*Controller.cs` - API endpoints with conditional features
+  - `*.cshtml` - Razor views with conditional rendering
+  - `*Tests.cs` - Unit tests with toggle mocks
+
+- **Frontend TypeScript/Angular:**
+  - `*.component.ts` - Component logic with toggle variables
+  - `*.component.html` - Templates with conditional rendering
+  - `*.service.ts` - Services with toggle checks
+  - `*.spec.ts` - Unit tests with toggle mocks
+
+- **Configuration:**
+  - `FiscaalGemakFeatures.cs` - C# enum definition
+  - `fiscaal-gemak-features.enum.ts` - TypeScript enum and descriptions
+  - `FiscaalGemakFeatures.generated.ts` - Generated enum files (AngularJS)
+
+---
+
+## ✅ Validation Checklist
+
+### Compilation
+- [ ] C# project compiles without errors
+- [ ] TypeScript compiles without errors
+- [ ] No unused variable warnings
+- [ ] No unused import warnings
+
+### Testing
+- [ ] All unit tests pass
+- [ ] Integration tests pass
+- [ ] Update mocks in tests (remove toggle checks)
+- [ ] No tests reference the toggle
+
+### Code Quality
+- [ ] No `if (true)` or `if (false)` statements
+- [ ] No commented-out code
+- [ ] No TODO comments about the toggle
+- [ ] All business logic preserved
+- [ ] Service dependencies cleaned up
+
+### Functional
+- [ ] Feature works as when toggle was enabled
+- [ ] No regressions in related functionality
+- [ ] Per-entity config still works (if applicable)
+
+---
+
+## 🤝 Team Coordination
+
+### Before Starting
+1. **Notify team** in Slack/Teams
+2. **Create feature branch**: `remove-{feature-name}-toggle`
+3. **Link to this guide** in PR description
+4. **Document tricky removals** for reviewers
+
+### During Removal
+1. **Small commits** per pattern type
+2. **Clear commit messages**: `"Remove {FEATURE} from {pattern}"`
+3. **Push regularly** to backup work
+4. **Test after each commit**
+
+### After Completion
+1. **Self-review** using validation checklist
+2. **Create PR** with:
+   - Link to this guide
+   - Summary of changes
+   - Risk assessment notes
+   - Test results
+3. **Request thorough review**
+4. **QA testing** if high-risk changes
+5. **Monitor post-deployment**
+
+---
+
+## 🚨 Emergency Rollback
+
+**If things go wrong:**
+1. ✅ **Revert immediately** - don't try to fix forward
+2. ✅ **Create incident ticket**
+3. ✅ **Investigate root cause** - what was missed?
+4. ✅ **Update this guide** if needed
+5. ✅ **Try again safely** with better understanding
+
+**Common issues:**
+- Business logic accidentally removed → Check complex boolean patterns
+- Tests failing → Update test mocks, remove toggle references
+- Compilation errors → Check for missing dependencies
+- Logic inverted → Check negated conditions were handled correctly
+
+---
+
+## 💡 Pro Tips
+
+1. **Start with low-risk patterns** (simple if, ternary) to build confidence
+2. **Use IDE search** with regex to find all variants
+3. **Test frequently** - every 3-5 changes
+4. **Ask for help** on complex boolean logic - better safe than sorry
+5. **Document tricky cases** in commit messages
+6. **Keep per-entity config** - check prompt for specific toggle
+7. **Watch for variable names** - toggles create many derived variables
+8. **Check generated files** - may need regeneration
+
+---
+
+##   Troubleshooting: "I Can't Find All References!"
+
+### Problem: Missing Frontend Variable Pattern
+**If you searched for the feature name but missed variable usages:**
+
+```typescript
+// You searched for: "ShowSheetPreview"
+// But you missed: "isShowSheetPreviewEnabled" ← Different name!
+```
+
+**Solution:** Search for variable name patterns:
+```
+is{FeatureName}Enabled
+{featureName}Enabled  
+{featureName}Flag
+show{FeatureName}
+```
+
+**Examples:**
+- `ShowSheetPreview` → search also for `isShowSheetPreviewEnabled`, `showSheetPreview`
+- `MediumClassificationIsAvailable` → search for `isMediumClassificationIsAvailableEnabled`, `mediumClassificationIsAvailable`
+
+---
+
+### Problem: Dictionary Access Pattern Not Recognized
+**If you see this pattern and don't know what to do:**
+
+```typescript
+this.someVariable = this.fiscaalGemakFeatures[FiscaalGemakFeatures[FiscaalGemakFeatures.FeatureName]];
+```
+
+**This is Pattern 7 (Variable Assignment):**
+1. Delete the variable declaration
+2. Delete the assignment line
+3. Remove all usages of `someVariable`
+
+---
+
+### Problem: Template Still References Removed Variable
+**Error:** `Property 'isFeatureEnabled' does not exist on type 'Component'`
+
+**Solution:** You removed the TypeScript variable but forgot template usages:
+```html
+<!-- Find and remove from templates: -->
+@if (isFeatureEnabled && ...)  ← Remove condition
+*ngIf="isFeatureEnabled && ..."  ← Remove condition
+ng-if="vm.isFeatureEnabled"  ← Remove condition
+```
+
+---
+
+### Problem: Per-Entity Config vs Feature Toggle
+**How to distinguish:**
+
+**Feature Toggle (REMOVE):**
+```typescript
+// Stored in fiscaalGemakFeatures dictionary from session storage
+this.isEnabled = this.fiscaalGemakFeatures[FiscaalGemakFeatures.FeatureName];
+```
+
+**Per-Entity Config (KEEP):**
+```typescript
+// Property on the entity/model itself
+document.currentSheet.showSheetPreview  ← Keep this!
+sheet.ShowSheetPreview  ← Keep this!
+item.showFeature  ← Keep this!
+```
+
+**Rule:** If it comes from the `fiscaalGemakFeatures` dictionary → REMOVE
+If it's a property on the entity/model → KEEP
+
+---
+
+##  📚 Quick Reference Card
+
+| Pattern | Search For | Action | Risk |
+|---------|-----------|--------|------|
+| Simple If | `if (toggle)` | Remove wrapper | 🟢 |
+| If-Else | `if (toggle) {...} else` | Keep if, delete else | 🟢 |
+| Negated | `if (!toggle)` | Delete entire block | 🟡 |
+| Complex Boolean | `condition && toggle` | Remove only toggle | 🔴 |
+| Method Param | `method(toggle)` | Replace with `true` | 🟠 |
+| Ternary | `toggle ? a : b` | Use `a` | 🟢 |
+| Variable | `var = toggle` | Delete variable | 🟡 |
+| Template | `*ngIf="toggle"` | Remove condition | 🟠 |
+| Dictionary Access | `fiscaalGemakFeatures[FiscaalGemakFeatures[...]]` | Pattern 7 | 🟡 |
+| **Method Signature** | **`method(param, true)`** | **Remove bool param entirely** | **🔵** |
+
+---
+
+## 🎯 Remember
+
+> **Feature toggle removal should maintain EXACTLY the same behavior as when the feature was enabled.**
+
+> **Better to be slow and safe than fast and broken.**
+
+> **When in doubt, DELETE IT OUT (but preserve business logic!).**
+
+---
+
+**This guide is UNIVERSAL - use it for ANY feature toggle in `FiscaalGemakFeatures`.**
+**Just replace `{FEATURE_NAME}` with your specific toggle name.**
