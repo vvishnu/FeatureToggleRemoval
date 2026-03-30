@@ -2,6 +2,8 @@
 using LibGit2Sharp;
 using Microsoft.Extensions.Logging;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace FeatureToggleAgent
 {
@@ -84,6 +86,16 @@ namespace FeatureToggleAgent
 
                 result.FilesModified = modifiedFiles.Count;
                 result.ModifiedFiles = modifiedFiles;
+
+                // Step 3b: Generate SQL migration script
+                _logger.LogInformation("Generating SQL migration script...");
+                var sqlFilePath = GenerateSqlMigrationScript(featureName);
+                if (sqlFilePath != null)
+                {
+                    modifiedFiles.Add(sqlFilePath);
+                    result.FilesModified = modifiedFiles.Count;
+                    _logger.LogInformation($"SQL migration script created: {sqlFilePath}");
+                }
 
                 // Step 4: Commit changes
                 _logger.LogInformation("Committing changes...");
@@ -394,6 +406,216 @@ namespace FeatureToggleAgent
         {
             if (string.IsNullOrEmpty(camelCase)) return camelCase;
             return char.ToUpperInvariant(camelCase[0]) + camelCase.Substring(1);
+        }
+
+        /// <summary>
+        /// Reads FiscaalGemakFeatures.cs, finds the integer enum value for <paramref name="featureName"/>,
+
+        /// then creates a numbered SQL migration file in the PreCompare folder.
+        /// Returns the full path of the created file, or null if it could not be generated.
+        /// </summary>
+        private string? GenerateSqlMigrationScript(string featureName)
+        {
+            var preComparePath = Path.Combine(
+                _repositoryPath,
+                "fg", "Source", "Database", "FiscaalGemak.Database", "_Updates", "PreCompare");
+
+            var featuresFilePath = Path.Combine(
+                _repositoryPath,
+                "fg", "Source", "Core", "Core.Configuration", "FiscaalGemakFeatures.cs");
+
+            if (!Directory.Exists(preComparePath))
+            {
+                _logger.LogWarning($"PreCompare directory not found: {preComparePath}");
+                return null;
+            }
+
+            if (!File.Exists(featuresFilePath))
+            {
+                _logger.LogWarning($"FiscaalGemakFeatures.cs not found: {featuresFilePath}");
+                return null;
+            }
+
+            var enumValue = ParseEnumValue(featuresFilePath, featureName);
+            if (enumValue == null)
+            {
+                _logger.LogWarning($"Could not find enum value for '{featureName}' in {featuresFilePath}");
+                return null;
+            }
+
+            _logger.LogInformation($"Resolved enum value for '{featureName}': {enumValue}");
+
+            var nextNumber = GetNextFileNumber(preComparePath);
+            var fileName = $"{nextNumber}_Remove_PilotFeature_{featureName}.sql";
+            var fullPath = Path.Combine(preComparePath, fileName);
+
+            var sqlContent =
+                $"""
+                SET XACT_ABORT ON;
+                BEGIN TRAN
+                    DELETE FROM [Organisation].[PilotFeatures]
+                    WHERE Feature IN ({enumValue});
+
+                    DELETE FROM [Organisation].[PilotFeatureHistory]
+                    WHERE FeatureId IN ({enumValue});
+
+                    DELETE FROM dbo.FeatureToggleHistory
+                    WHERE FeatureToggleId IN ({enumValue});
+
+                    DELETE FROM dbo.FeatureToggles
+                    WHERE Id IN ({enumValue});
+                COMMIT TRAN;
+                """;
+
+            File.WriteAllText(fullPath, sqlContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            var sqlProjPath = Path.Combine(
+                _repositoryPath,
+                "fg", "Source", "Database", "FiscaalGemak.Database", "FiscaalGemak.Database.sqlproj");
+
+            AddFileToSqlProj(sqlProjPath, fullPath);
+
+            return fullPath;
+        }
+
+        /// <summary>
+        /// Adds the generated SQL file to FiscaalGemak.Database.sqlproj as a Build item
+        /// with <CopyToOutputDirectory>DoNotCopy</CopyToOutputDirectory>.
+        /// The include path is relative to the .sqlproj file's directory.
+        /// </summary>
+        private void AddFileToSqlProj(string sqlProjPath, string sqlFilePath)
+        {
+            if (!File.Exists(sqlProjPath))
+            {
+                _logger.LogWarning($"sqlproj not found, skipping project registration: {sqlProjPath}");
+                return;
+            }
+
+            var sqlProjDir = Path.GetDirectoryName(sqlProjPath)!;
+            var relativePath = Path.GetRelativePath(sqlProjDir, sqlFilePath);
+
+            var doc = XDocument.Load(sqlProjPath, LoadOptions.PreserveWhitespace);
+            XNamespace ns = doc.Root!.GetDefaultNamespace();
+
+            // Check if the entry already exists (idempotent)
+            var alreadyIncluded = doc.Descendants(ns + "None")
+                .Any(e => string.Equals(
+                    e.Attribute("Include")?.Value,
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase));
+
+            if (alreadyIncluded)
+            {
+                _logger.LogInformation($"File already referenced in sqlproj: {relativePath}");
+                return;
+            }
+
+            var newItem = new XElement(ns + "None",
+                new XAttribute("Include", relativePath),
+                new XElement(ns + "CopyToOutputDirectory", "DoNotCopy"));
+
+            // Append to the last ItemGroup that already contains None elements,
+            // or add a new ItemGroup at the end of the project.
+            var lastBuildGroup = doc.Descendants(ns + "ItemGroup")
+                .LastOrDefault(g => g.Elements(ns + "None").Any());
+
+            if (lastBuildGroup != null)
+            {
+                lastBuildGroup.Add(new XText("  "), newItem, new XText("\n  "));
+            }
+            else
+            {
+                var newItemGroup = new XElement(ns + "ItemGroup", new XText("\n    "), newItem, new XText("\n  "));
+                doc.Root.Add(new XText("  "), newItemGroup, new XText("\n"));
+            }
+
+            doc.Save(sqlProjPath);
+            _logger.LogInformation($"Registered '{relativePath}' in {Path.GetFileName(sqlProjPath)}");
+        }
+
+        /// <summary>
+        /// Parses the integer value assigned to <paramref name="featureName"/> in the enum file.
+        /// Handles both explicit assignments (e.g. <c>Foo = 42,</c>) and implicit sequential values.
+        /// </summary>
+        private int? ParseEnumValue(string featuresFilePath, string featureName)
+        {
+            var lines = File.ReadAllLines(featuresFilePath);
+
+            // Match:  MemberName = 123,   or   MemberName = 123   (with optional comment)
+            var explicitPattern = new Regex(
+                @"^\s*(?<name>\w+)\s*=\s*(?<value>\d+)",
+
+                RegexOptions.Compiled);
+
+            // Match a plain enum member line (no assignment):  MemberName,
+            var implicitPattern = new Regex(
+                @"^\s*(?<name>\w+)\s*[,\s]",
+
+                RegexOptions.Compiled);
+
+            int currentValue = 0;
+            bool insideEnum = false;
+
+            foreach (var line in lines)
+            {
+                var trimmed = line.Trim();
+
+                // Detect enum body start
+                if (!insideEnum)
+                {
+                    if (trimmed.StartsWith("public enum") || trimmed.StartsWith("enum"))
+                        insideEnum = true;
+                    continue;
+                }
+
+                if (trimmed == "{") continue;
+                if (trimmed.StartsWith("}")) break;
+
+                // Skip comments and blank lines
+                if (trimmed.StartsWith("//") || trimmed.StartsWith("/*") || trimmed.Length == 0)
+                    continue;
+
+                var explicitMatch = explicitPattern.Match(trimmed);
+                if (explicitMatch.Success)
+                {
+                    currentValue = int.Parse(explicitMatch.Groups["value"].Value);
+                    if (explicitMatch.Groups["name"].Value == featureName)
+                        return currentValue;
+
+                    currentValue++; // next implicit member follows from here
+                    continue;
+                }
+
+                var implicitMatch = implicitPattern.Match(trimmed);
+                if (implicitMatch.Success)
+                {
+                    if (implicitMatch.Groups["name"].Value == featureName)
+                        return currentValue;
+
+                    currentValue++;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Scans <paramref name="directoryPath"/> for files whose names start with a number,
+        /// finds the highest such number, and returns it incremented by 1.
+        /// </summary>
+        private static int GetNextFileNumber(string directoryPath)
+        {
+            var leadingNumberPattern = new Regex(@"^(?<num>\d+)", RegexOptions.Compiled);
+
+            var maxNumber = Directory
+                .EnumerateFiles(directoryPath, "*.sql")
+                .Select(f => leadingNumberPattern.Match(Path.GetFileName(f)))
+                .Where(m => m.Success)
+                .Select(m => int.Parse(m.Groups["num"].Value))
+                .DefaultIfEmpty(0)
+                .Max();
+
+            return maxNumber + 1;
         }
     }
 }
