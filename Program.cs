@@ -55,9 +55,9 @@ try
         return;
     }
 
-    Console.WriteLine("╔══════════════════════════════════════════════════════╗");
-    Console.WriteLine("║   Feature Toggle Removal Agent - Powered by Gemini   ║");
-    Console.WriteLine("╚══════════════════════════════════════════════════════╝");
+    Console.WriteLine("╔═══════════════════════════════════════════════════════════════╗");
+    Console.WriteLine("║   Feature Toggle Removal Agent - Powered by GithubCopilot     ║");
+    Console.WriteLine("╚═══════════════════════════════════════════════════════════════╝");
     Console.WriteLine();
     Console.WriteLine($"Feature Name:     {featureName}");
     Console.WriteLine($"Repository Path:  {repositoryPath}");
@@ -102,7 +102,9 @@ try
         logger,
         repositoryPath,
         guideFilePath,
-        devOpsConfig
+        devOpsConfig,
+        configBuilder.GetConnectionString("FiscaalGemak")
+            ?? throw new InvalidOperationException("ConnectionStrings:FiscaalGemak is not configured in appsettings.json")
     );
 
     var result = await agent.ExecuteRemovalAsync(featureName, description);

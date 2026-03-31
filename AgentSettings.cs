@@ -31,6 +31,8 @@ public class AgentSettings
     /// </summary>
     public bool DryRun { get; set; } = false;
 
+    public string DatabaseConnectionString { get; set; } = string.Empty;
+
     public void Validate()
     {
         var missing = new List<string>();

@@ -1,5 +1,7 @@
-﻿using GitHub.Copilot.SDK;
+﻿using Dapper;
+using GitHub.Copilot.SDK;
 using LibGit2Sharp;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -14,18 +16,21 @@ namespace FeatureToggleAgent
         private readonly string _featureToggleRemovalGuide;
         private readonly AzureDevOpsConfigOptions _devOpsConfig;
         private readonly CopilotSession _copilotSession;
+        private readonly string _connectionString;
 
         public FeatureToggleRemovalAgent(
             CopilotSession copilotSession,
             ILogger<FeatureToggleRemovalAgent> logger,
             string repositoryPath,
             string guideFilePath,
-            AzureDevOpsConfigOptions devOpsConfig)
+            AzureDevOpsConfigOptions devOpsConfig,
+            string connectionString)
         {
             _copilotSession = copilotSession ?? throw new ArgumentNullException(nameof(copilotSession));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _repositoryPath = repositoryPath ?? throw new ArgumentNullException(nameof(repositoryPath));
             _devOpsConfig = devOpsConfig ?? throw new ArgumentNullException(nameof(devOpsConfig));
+            _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
 
             if (!File.Exists(guideFilePath))
                 throw new FileNotFoundException($"Guide file not found: {guideFilePath}");
@@ -89,7 +94,7 @@ namespace FeatureToggleAgent
 
                 // Step 3b: Generate SQL migration script
                 _logger.LogInformation("Generating SQL migration script...");
-                var sqlFilePath = GenerateSqlMigrationScript(featureName);
+                var (sqlFilePath, sqlContent) = GenerateSqlMigrationScript(featureName);
                 if (sqlFilePath != null)
                 {
                     modifiedFiles.Add(sqlFilePath);
@@ -108,6 +113,14 @@ namespace FeatureToggleAgent
                 var prNumber = await CreatePullRequestAsync(featureName, description, branchName, modifiedFiles);
                 result.PullRequestNumber = prNumber;
                 result.PullRequestUrl = $"{_devOpsConfig.OrganizationUrl}/{_devOpsConfig.Project}/_git/{_devOpsConfig.Repository}/pullrequest/{prNumber}";
+
+                // Step 6: Execute SQL migration against the database
+                if (sqlContent != null)
+                {
+                    _logger.LogInformation("Executing SQL migration script against the database...");
+                    await ExecuteSqlAsync(sqlContent);
+                    _logger.LogInformation("SQL migration executed successfully.");
+                }
 
                 result.Status = RemovalStatus.Success;
                 result.CompletedTime = DateTime.UtcNow;
@@ -414,7 +427,7 @@ namespace FeatureToggleAgent
         /// then creates a numbered SQL migration file in the PreCompare folder.
         /// Returns the full path of the created file, or null if it could not be generated.
         /// </summary>
-        private string? GenerateSqlMigrationScript(string featureName)
+        private (string? filePath, string? sqlContent) GenerateSqlMigrationScript(string featureName)
         {
             var preComparePath = Path.Combine(
                 _repositoryPath,
@@ -427,20 +440,20 @@ namespace FeatureToggleAgent
             if (!Directory.Exists(preComparePath))
             {
                 _logger.LogWarning($"PreCompare directory not found: {preComparePath}");
-                return null;
+                return (null, null);
             }
 
             if (!File.Exists(featuresFilePath))
             {
                 _logger.LogWarning($"FiscaalGemakFeatures.cs not found: {featuresFilePath}");
-                return null;
+                return (null, null);
             }
 
             var enumValue = ParseEnumValue(featuresFilePath, featureName);
             if (enumValue == null)
             {
                 _logger.LogWarning($"Could not find enum value for '{featureName}' in {featuresFilePath}");
-                return null;
+                return (null, null);
             }
 
             _logger.LogInformation($"Resolved enum value for '{featureName}': {enumValue}");
@@ -449,23 +462,21 @@ namespace FeatureToggleAgent
             var fileName = $"{nextNumber}_Remove_PilotFeature_{featureName}.sql";
             var fullPath = Path.Combine(preComparePath, fileName);
 
-            var sqlContent =
-                $"""
-                SET XACT_ABORT ON;
-                BEGIN TRAN
-                    DELETE FROM [Organisation].[PilotFeatures]
-                    WHERE Feature IN ({enumValue});
-
-                    DELETE FROM [Organisation].[PilotFeatureHistory]
-                    WHERE FeatureId IN ({enumValue});
-
-                    DELETE FROM dbo.FeatureToggleHistory
-                    WHERE FeatureToggleId IN ({enumValue});
-
-                    DELETE FROM dbo.FeatureToggles
-                    WHERE Id IN ({enumValue});
-                COMMIT TRAN;
-                """;
+            var sqlContent = string.Join(Environment.NewLine,
+                "SET XACT_ABORT ON;",
+                "BEGIN TRAN",
+                $"    DELETE FROM [Organisation].[PilotFeatures]",
+                $"    WHERE Feature IN ({enumValue});",
+                "",
+                $"    DELETE FROM [Organisation].[PilotFeatureHistory]",
+                $"    WHERE FeatureId IN ({enumValue});",
+                "",
+                $"    DELETE FROM dbo.FeatureToggleHistory",
+                $"    WHERE FeatureToggleId IN ({enumValue});",
+                "",
+                $"    DELETE FROM dbo.FeatureToggles",
+                $"    WHERE Id IN ({enumValue});",
+                "COMMIT TRAN;");
 
             File.WriteAllText(fullPath, sqlContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
@@ -475,7 +486,18 @@ namespace FeatureToggleAgent
 
             AddFileToSqlProj(sqlProjPath, fullPath);
 
-            return fullPath;
+            return (fullPath, sqlContent);
+        }
+
+        /// <summary>
+        /// Executes the SQL migration script against the configured database using Dapper.
+        /// </summary>
+        private async Task ExecuteSqlAsync(string sql)
+        {
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync();
+            _logger.LogInformation($"Connected to database: {connection.Database} on {connection.DataSource}");
+            await connection.ExecuteAsync(sql, commandTimeout: 120);
         }
 
         /// <summary>
