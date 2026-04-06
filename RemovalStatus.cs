@@ -11,6 +11,7 @@ namespace FeatureToggleAgent
         Success,
         Failed,
         NoFilesFound,
-        PartialSuccess
+        PartialSuccess,
+        BuildFailed
     }
 }

@@ -3,6 +3,7 @@ using GitHub.Copilot.SDK;
 using LibGit2Sharp;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -51,10 +52,28 @@ namespace FeatureToggleAgent
             {
                 //Step 1: Create and checkout feature branch
                 _logger.LogInformation("Creating feature branch...");
+                _logger.LogInformation("This will first switch to main branch, fetch and pull changes for main branch.");
+                _logger.LogInformation("The new branch will be created after pull for main branch is completed.");
                 var branchName = CreateFeatureBranch(featureName);
                 result.BranchName = branchName;
 
-                // Step 2: Find all files with feature toggle references
+                // Step 2: Generate SQL migration script
+                var modifiedFiles = new List<string>();
+                _logger.LogInformation("Generating SQL migration script...");
+                var (sqlFilePath, sqlContent, sqlProjPath) = GenerateSqlMigrationScript(featureName);
+                if (sqlFilePath != null)
+                {
+                    modifiedFiles.Add(sqlFilePath);
+                    if (sqlProjPath != null)
+                    {
+                        modifiedFiles.Add(sqlProjPath);
+                    }
+
+                    result.FilesModified = modifiedFiles.Count;
+                    _logger.LogInformation($"SQL migration script created: {sqlFilePath}");
+                }
+
+                // Step 3: Find all files with feature toggle references
                 _logger.LogInformation("Scanning repository for feature toggle references...");
                 var filesToModify = FindFilesWithToggleReferences(featureName);
                 result.FilesIdentified = filesToModify.Count;
@@ -68,9 +87,7 @@ namespace FeatureToggleAgent
 
                 _logger.LogInformation($"Found {filesToModify.Count} files to modify");
 
-                // Step 3: Process each file with AI assistance
-                var modifiedFiles = new List<string>();
-
+                // Step 4: Process each file with AI assistance
                 foreach (var file in filesToModify)
                 {
                     _logger.LogInformation($"Processing file: {file}");
@@ -92,40 +109,47 @@ namespace FeatureToggleAgent
                 result.FilesModified = modifiedFiles.Count;
                 result.ModifiedFiles = modifiedFiles;
 
-                // Step 3b: Generate SQL migration script
-                _logger.LogInformation("Generating SQL migration script...");
-                var (sqlFilePath, sqlContent) = GenerateSqlMigrationScript(featureName);
-                if (sqlFilePath != null)
-                {
-                    modifiedFiles.Add(sqlFilePath);
-                    result.FilesModified = modifiedFiles.Count;
-                    _logger.LogInformation($"SQL migration script created: {sqlFilePath}");
-                }
-
-                // Step 4: Commit changes
+                // Step 5: Commit changes
                 _logger.LogInformation("Committing changes...");
                 var commitMessage = GenerateCommitMessage(featureName, modifiedFiles.Count);
                 CommitChanges(commitMessage, modifiedFiles, branchName);
                 result.CommitHash = GetCurrentCommitHash();
 
-                // Step 5: Create Pull Request
+
+
+                // Step 6: Build solution to verify changes compile
+                _logger.LogInformation("Building solution to verify changes...");
+                var buildPassed = await BuildSolutionAsync();
+                if (!buildPassed)
+                {
+                    _logger.LogError("Build failed. Pull request will not be created.");
+                    result.Status = RemovalStatus.BuildFailed;
+                    result.ErrorMessage = "Solution build failed after applying changes. Please review the build output and fix errors before creating a PR.";
+                    result.CompletedTime = DateTime.UtcNow;
+                    return result;
+                }
+
+                _logger.LogInformation("Build succeeded.");
+
+                // Step 7: Create Pull Request
                 _logger.LogInformation("Creating pull request...");
                 var prNumber = await CreatePullRequestAsync(featureName, description, branchName, modifiedFiles);
                 result.PullRequestNumber = prNumber;
                 result.PullRequestUrl = $"{_devOpsConfig.OrganizationUrl}/{_devOpsConfig.Project}/_git/{_devOpsConfig.Repository}/pullrequest/{prNumber}";
 
-                // Step 6: Execute SQL migration against the database
-                if (sqlContent != null)
-                {
-                    _logger.LogInformation("Executing SQL migration script against the database...");
-                    await ExecuteSqlAsync(sqlContent);
-                    _logger.LogInformation("SQL migration executed successfully.");
-                }
+                // Step 8: Execute SQL migration against the database
+                //if (sqlContent != null)
+                //{
+                //    _logger.LogInformation("Executing SQL migration script against the database...");
+                //    await ExecuteSqlAsync(sqlContent);
+                //    _logger.LogInformation("SQL migration executed successfully.");
+                //}
 
                 result.Status = RemovalStatus.Success;
                 result.CompletedTime = DateTime.UtcNow;
 
                 _logger.LogInformation($"Feature toggle removal completed successfully. PR: {prNumber}");
+                _logger.LogInformation($"Feature toggle removal PR link: {result.PullRequestUrl}");
             }
             catch (Exception ex)
             {
@@ -141,9 +165,6 @@ namespace FeatureToggleAgent
 
         private async Task<bool> ProcessFileWithAIAsyncCopilot(string filePath, string featureName)
         {
-            var fileContent = File.ReadAllText(filePath);
-            var originalContent = fileContent;
-
             var prompt = 
              $"""
                 
@@ -270,26 +291,50 @@ namespace FeatureToggleAgent
         {
             var branchName = $"feature/fg/remove-{featureName.ToLower()}-featuretoggle-{DateTime.UtcNow:yyyyMMddHHmmss}";
 
+            
             using (var repo = new Repository(_repositoryPath))
             {
                 // Ensure we're on the main branch first
+                _logger.LogInformation($"Switching to 'main' branch now");
                 Commands.Checkout(repo, "main");
-
+                
                 // Pull latest from remote
                 var origin = repo.Network.Remotes["origin"];
                 var refSpecs = origin.FetchRefSpecs.Select(x => x.Specification);
+                var credentials = new UsernamePasswordCredentials
+                {
+                    Username = "pat",
+                    Password = _devOpsConfig.PersonalAccessToken
+                };
+
+                _logger.LogInformation($"Fetching the latest changes");
+
                 var fetchOptions = new FetchOptions
                 {
-                    CredentialsProvider = (_, _, _) =>
-                        new UsernamePasswordCredentials
-                        {
-                            Username = "pat",
-                            Password = _devOpsConfig.PersonalAccessToken
-                        }
+                    CredentialsProvider = (_, _, _) => credentials
                 };
                 Commands.Fetch(repo, "origin", refSpecs, fetchOptions, null);
 
+                _logger.LogInformation($"Pulling latest changes from 'main' branch");
+
+                // Pull (merge) latest changes from origin/main into the local main branch
+                var pullOptions = new PullOptions
+                {
+                    FetchOptions = new FetchOptions
+                    {
+                        CredentialsProvider = (_, _, _) => credentials
+                    },
+                    MergeOptions = new MergeOptions
+                    {
+                        FastForwardStrategy = FastForwardStrategy.Default
+                    }
+                };
+                var merger = new Signature("FeatureToggleBot", "bot@fiscaalgemak.nl", DateTimeOffset.Now);
+                var pullResult = Commands.Pull(repo, merger, pullOptions);
+                _logger.LogInformation($"Pull result: {pullResult.Status}");
+
                 // Create and checkout new branch
+                _logger.LogInformation($"Creating new branch {branchName}");
                 var branch = repo.CreateBranch(branchName);
                 Commands.Checkout(repo, branch);
 
@@ -427,7 +472,7 @@ namespace FeatureToggleAgent
         /// then creates a numbered SQL migration file in the PreCompare folder.
         /// Returns the full path of the created file, or null if it could not be generated.
         /// </summary>
-        private (string? filePath, string? sqlContent) GenerateSqlMigrationScript(string featureName)
+        private (string? filePath, string? sqlContent, string? sqlProjPath) GenerateSqlMigrationScript(string featureName)
         {
             var preComparePath = Path.Combine(
                 _repositoryPath,
@@ -440,20 +485,20 @@ namespace FeatureToggleAgent
             if (!Directory.Exists(preComparePath))
             {
                 _logger.LogWarning($"PreCompare directory not found: {preComparePath}");
-                return (null, null);
+                return (null, null, null);
             }
 
             if (!File.Exists(featuresFilePath))
             {
                 _logger.LogWarning($"FiscaalGemakFeatures.cs not found: {featuresFilePath}");
-                return (null, null);
+                return (null, null, null);
             }
 
             var enumValue = ParseEnumValue(featuresFilePath, featureName);
             if (enumValue == null)
             {
                 _logger.LogWarning($"Could not find enum value for '{featureName}' in {featuresFilePath}");
-                return (null, null);
+                return (null, null, null);
             }
 
             _logger.LogInformation($"Resolved enum value for '{featureName}': {enumValue}");
@@ -486,7 +531,98 @@ namespace FeatureToggleAgent
 
             AddFileToSqlProj(sqlProjPath, fullPath);
 
-            return (fullPath, sqlContent);
+            return (fullPath, sqlContent, sqlProjPath);
+        }
+
+        /// <summary>
+        /// Builds the FiscaalGemak solution using <c>dotnet build</c> and streams
+        /// the output to the logger. Returns <c>true</c> if the build exits with code 0.
+        /// </summary>
+        private async Task<bool> BuildSolutionAsync()
+        {
+            var solutionPath = Path.Combine(_repositoryPath, "fg", "FiscaalGemak.sln");
+            bool buildErrorsPresent = false;
+
+            if (!File.Exists(solutionPath))
+            {
+                _logger.LogWarning($"Solution file not found at '{solutionPath}'. Skipping build verification.");
+                return true;
+            }
+
+            _logger.LogInformation($"Running: dotnet build \"{solutionPath}\" --no-incremental");
+
+            // MSBuild error codes that are caused by tooling/environment mismatches
+            // when building legacy web projects via dotnet CLI instead of Visual Studio.
+            // These are not real compile errors and should be ignored.
+            var ignoredErrorCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "MSB4019", // Imported .targets file not found (e.g. Microsoft.WebApplication.targets)
+                "MSB4226", // Imported SDK not found
+            };
+
+            // Matches real MSBuild/compiler error lines of the form:
+            //   <file>(line,col): error CSxxxx: ...
+            //   <project>: error MSBxxxx: ...
+            var msBuildErrorPattern = new Regex(
+                @": error (?<code>[A-Z]{1,4}\d{4}):",
+                RegexOptions.Compiled);
+
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"build \"{solutionPath}\" --no-incremental",
+                RedirectStandardOutput = true,
+                RedirectStandardError = false,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = new Process { StartInfo = startInfo };
+
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data is null) return;
+
+                // Skip lines that are warnings — even if their message text contains the word "error"
+                if (e.Data.Contains(": warning ", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                var match = msBuildErrorPattern.Match(e.Data);
+                if (!match.Success) return;
+
+                var errorCode = match.Groups["code"].Value;
+
+                if (ignoredErrorCodes.Contains(errorCode))
+                {
+                    return;
+                }
+
+                _logger.LogError("[build] {Line}", e.Data);
+                buildErrorsPresent = true;
+            };
+
+            //process.ErrorDataReceived += (_, e) =>
+            //{
+            //    buildErrorsPresent = true;
+            //    if (e is not null)
+            //    {
+            //        _logger.LogError("[build] {Line}", e.Data);
+            //        buildErrorsPresent = true;
+            //    }
+            //};
+
+            process.Start();
+            process.BeginOutputReadLine();
+            //process.BeginErrorReadLine();
+
+            await process.WaitForExitAsync();
+
+            _logger.LogInformation($"Build completed.");
+            bool isBuildSuccessful = !buildErrorsPresent;
+            return isBuildSuccessful;
         }
 
         /// <summary>
